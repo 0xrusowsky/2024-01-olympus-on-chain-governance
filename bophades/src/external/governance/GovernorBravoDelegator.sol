@@ -1,54 +1,41 @@
 // SPDX-License-Identifier: BSD-3-Clause
-pragma solidity 0.8.15;
+pragma solidity ^0.8.10;
 
-import {IGovernorBravoEventsAndErrors} from "./interfaces/IGovernorBravoEvents.sol";
-import {GovernorBravoDelegatorStorage} from "./abstracts/GovernorBravoStorage.sol";
+import "./GovernorBravoInterfaces.sol";
 
-contract GovernorBravoDelegator is GovernorBravoDelegatorStorage, IGovernorBravoEventsAndErrors {
-    // --- CONSTRUCTOR -------------------------------------------------------------
+contract GovernorBravoDelegator is GovernorBravoDelegatorStorage, GovernorBravoEvents {
+	constructor(
+			address timelock_,
+			address comp_,
+			address admin_,
+	        address implementation_,
+	        uint votingPeriod_,
+	        uint votingDelay_,
+            uint proposalThreshold_) public {
 
-    constructor(
-        address timelock_,
-        address gohm_,
-        address kernel_,
-        address implementation_,
-        uint256 votingPeriod_,
-        uint256 votingDelay_,
-        uint256 proposalThreshold_
-    ) {
         // Admin set to msg.sender for initialization
         admin = msg.sender;
 
-        delegateTo(
-            implementation_,
-            abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,uint256,uint256)",
-                timelock_,
-                gohm_,
-                kernel_,
-                votingPeriod_,
-                votingDelay_,
-                proposalThreshold_
-            )
-        );
+        delegateTo(implementation_, abi.encodeWithSignature("initialize(address,address,uint256,uint256,uint256)",
+                                                            timelock_,
+                                                            comp_,
+                                                            votingPeriod_,
+                                                            votingDelay_,
+                                                            proposalThreshold_));
 
         _setImplementation(implementation_);
 
-        admin = timelock_;
-    }
+		admin = admin_;
+	}
 
-    // --- PROXY LOGIC -------------------------------------------------------------
 
-    /**
+	/**
      * @notice Called by the admin to update the implementation of the delegator
      * @param implementation_ The address of the new implementation for delegation
      */
     function _setImplementation(address implementation_) public {
         require(msg.sender == admin, "GovernorBravoDelegator::_setImplementation: admin only");
-        require(
-            implementation_ != address(0),
-            "GovernorBravoDelegator::_setImplementation: invalid implementation address"
-        );
+        require(implementation_ != address(0), "GovernorBravoDelegator::_setImplementation: invalid implementation address");
 
         address oldImplementation = implementation;
         implementation = implementation_;
@@ -71,26 +58,22 @@ contract GovernorBravoDelegator is GovernorBravoDelegatorStorage, IGovernorBravo
         }
     }
 
-    /**
+	/**
      * @dev Delegates execution to an implementation contract.
      * It returns to the external caller whatever the implementation returns
      * or forwards reverts.
      */
-    fallback() external payable {
+    fallback () external payable {
         // delegate all other functions to current implementation
         (bool success, ) = implementation.delegatecall(msg.data);
 
         assembly {
-            let free_mem_ptr := mload(0x40)
-            returndatacopy(free_mem_ptr, 0, returndatasize())
+              let free_mem_ptr := mload(0x40)
+              returndatacopy(free_mem_ptr, 0, returndatasize())
 
-            switch success
-            case 0 {
-                revert(free_mem_ptr, returndatasize())
-            }
-            default {
-                return(free_mem_ptr, returndatasize())
-            }
+              switch success
+              case 0 { revert(free_mem_ptr, returndatasize()) }
+              default { return(free_mem_ptr, returndatasize()) }
         }
     }
 }
