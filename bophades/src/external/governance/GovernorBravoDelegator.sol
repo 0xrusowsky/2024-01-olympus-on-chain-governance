@@ -11,9 +11,11 @@ contract GovernorBravoDelegator is GovernorBravoDelegatorStorage, IGovernorBravo
         address timelock_,
         address gohm_,
         address kernel_,
+        address vetoGuardian_,
         address implementation_,
         uint256 votingPeriod_,
         uint256 votingDelay_,
+        uint256 activationGracePeriod_,
         uint256 proposalThreshold_
     ) {
         // Admin set to msg.sender for initialization
@@ -22,12 +24,14 @@ contract GovernorBravoDelegator is GovernorBravoDelegatorStorage, IGovernorBravo
         delegateTo(
             implementation_,
             abi.encodeWithSignature(
-                "initialize(address,address,address,uint256,uint256,uint256)",
+                "initialize(address,address,address,address,uint256,uint256,uint256,uint256)",
                 timelock_,
                 gohm_,
                 kernel_,
+                vetoGuardian_,
                 votingPeriod_,
                 votingDelay_,
+                activationGracePeriod_,
                 proposalThreshold_
             )
         );

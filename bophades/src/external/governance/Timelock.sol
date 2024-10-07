@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 pragma solidity 0.8.15;
 
+import {ContractUtils} from "src/external/governance/lib/ContractUtils.sol";
+
 import {ITimelock} from "./interfaces/ITimelock.sol";
 
 contract Timelock is ITimelock {
@@ -15,6 +17,7 @@ contract Timelock is ITimelock {
     error Timelock_InvalidTx_Stale();
     error Timelock_InvalidTx_Locked();
     error Timelock_InvalidTx_NotQueued();
+    error Timelock_InvalidTx_CodeHashChanged();
     error Timelock_InvalidTx_ExecReverted();
 
     // --- EVENTS ---------------------------------------------------------
@@ -23,6 +26,7 @@ contract Timelock is ITimelock {
     event NewPendingAdmin(address indexed newPendingAdmin);
     event NewDelay(uint256 indexed newDelay);
     event CancelTransaction(
+        uint256 indexed proposalId,
         bytes32 indexed txHash,
         address indexed target,
         uint256 value,
@@ -31,6 +35,7 @@ contract Timelock is ITimelock {
         uint256 eta
     );
     event ExecuteTransaction(
+        uint256 indexed proposalId,
         bytes32 indexed txHash,
         address indexed target,
         uint256 value,
@@ -39,6 +44,7 @@ contract Timelock is ITimelock {
         uint256 eta
     );
     event QueueTransaction(
+        uint256 indexed proposalId,
         bytes32 indexed txHash,
         address indexed target,
         uint256 value,
@@ -49,9 +55,9 @@ contract Timelock is ITimelock {
 
     // --- STATE VARIABLES ---------------------------------------------------------
 
-    uint256 public constant GRACE_PERIOD = 2 days;
-    uint256 public constant MINIMUM_DELAY = 2 days;
-    uint256 public constant MAXIMUM_DELAY = 30 days;
+    uint256 public constant GRACE_PERIOD = 1 days;
+    uint256 public constant MINIMUM_DELAY = 1 days;
+    uint256 public constant MAXIMUM_DELAY = 3 days;
 
     address public admin;
     address public pendingAdmin;
@@ -106,6 +112,7 @@ contract Timelock is ITimelock {
     }
 
     function queueTransaction(
+        uint256 proposalId,
         address target,
         uint256 value,
         string memory signature,
@@ -115,14 +122,15 @@ contract Timelock is ITimelock {
         if (msg.sender != admin) revert Timelock_OnlyAdmin();
         if (eta < block.timestamp + delay) revert Timelock_InvalidExecutionTime();
 
-        bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
+        bytes32 txHash = keccak256(abi.encode(proposalId, target, value, signature, data, eta));
         queuedTransactions[txHash] = true;
 
-        emit QueueTransaction(txHash, target, value, signature, data, eta);
+        emit QueueTransaction(proposalId, txHash, target, value, signature, data, eta);
         return txHash;
     }
 
     function cancelTransaction(
+        uint256 proposalId,
         address target,
         uint256 value,
         string memory signature,
@@ -131,25 +139,30 @@ contract Timelock is ITimelock {
     ) public {
         if (msg.sender != admin) revert Timelock_OnlyAdmin();
 
-        bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
+        bytes32 txHash = keccak256(abi.encode(proposalId, target, value, signature, data, eta));
         queuedTransactions[txHash] = false;
 
-        emit CancelTransaction(txHash, target, value, signature, data, eta);
+        emit CancelTransaction(proposalId, txHash, target, value, signature, data, eta);
     }
 
     function executeTransaction(
+        uint256 proposalId,
         address target,
         uint256 value,
         string memory signature,
         bytes memory data,
+        bytes32 codehash,
         uint256 eta
     ) public payable returns (bytes memory) {
         if (msg.sender != admin) revert Timelock_OnlyAdmin();
 
-        bytes32 txHash = keccak256(abi.encode(target, value, signature, data, eta));
+        bytes32 txHash = keccak256(abi.encode(proposalId, target, value, signature, data, eta));
         if (!queuedTransactions[txHash]) revert Timelock_InvalidTx_NotQueued();
         if (block.timestamp < eta) revert Timelock_InvalidTx_Locked();
         if (block.timestamp > eta + GRACE_PERIOD) revert Timelock_InvalidTx_Stale();
+
+        if (ContractUtils.getCodeHash(target) != codehash)
+            revert Timelock_InvalidTx_CodeHashChanged();
 
         queuedTransactions[txHash] = false;
 
@@ -165,7 +178,7 @@ contract Timelock is ITimelock {
         (bool success, bytes memory returnData) = target.call{value: value}(callData);
         if (!success) revert Timelock_InvalidTx_ExecReverted();
 
-        emit ExecuteTransaction(txHash, target, value, signature, data, eta);
+        emit ExecuteTransaction(proposalId, txHash, target, value, signature, data, eta);
 
         return returnData;
     }
